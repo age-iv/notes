@@ -2,64 +2,42 @@
 
 namespace App\Entity;
 
-use App\Repository\NoteRepository;
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Component\Validator\Constraints as Assert;
-use OpenApi\Annotations as OA;
 
-/**
- * @OA\Schema(
- *     description="Заметка",
- *     title="Note"
- * )
- */
-#[ORM\Entity(repositoryClass: NoteRepository::class)]
+#[ORM\Entity]
+#[ORM\Table(name: 'note')]
 class Note
 {
-    /**
-     * @OA\Property(description="Уникальный идентификатор заметки", type="integer", example=1)
-     */
     #[ORM\Id]
     #[ORM\GeneratedValue]
     #[ORM\Column]
     private ?int $id = null;
 
-    /**
-     * @OA\Property(description="Заголовок заметки", type="string", example="Моя заметка")
-     */
     #[ORM\Column(length: 255)]
-    #[Assert\NotBlank(message: "Заголовок не может быть пустым")]
+    #[Assert\NotBlank(message: "Title cannot be blank")]
     #[Assert\Length(
         min: 3,
         max: 255,
-        minMessage: "Заголовок должен быть не менее {{ limit }} символов",
-        maxMessage: "Заголовок должен быть не более {{ limit }} символов"
+        minMessage: "Title must be at least {{ limit }} characters",
+        maxMessage: "Title must be no more than {{ limit }} characters"
     )]
     private ?string $title = null;
 
-    /**
-     * @OA\Property(description="Содержание заметки", type="string", example="Это содержание моей заметки")
-     */
     #[ORM\Column(type: 'text')]
-    #[Assert\NotBlank(message: "Содержание не может быть пустым")]
+    #[Assert\NotBlank(message: "Content cannot be blank")]
     private ?string $content = null;
 
-    /**
-     * @OA\Property(description="Дата создания", type="string", format="date-time", example="2023-10-01 12:00:00")
-     */
     #[ORM\Column]
-    private ?\DateTimeImmutable $createdAt = null;
+    private ?\DateTimeImmutable $created_at = null;
 
-    /**
-     * @OA\Property(description="Дата последнего обновления", type="string", format="date-time", example="2023-10-01 12:00:00")
-     */
     #[ORM\Column]
-    private ?\DateTimeImmutable $updatedAt = null;
+    private ?\DateTimeImmutable $updated_at = null;
 
     public function __construct()
     {
-        $this->createdAt = new \DateTimeImmutable();
-        $this->updatedAt = new \DateTimeImmutable();
+        $this->created_at = new \DateTimeImmutable();
+        $this->updated_at = new \DateTimeImmutable();
     }
 
     public function getId(): ?int
@@ -91,23 +69,34 @@ class Note
 
     public function getCreatedAt(): ?\DateTimeImmutable
     {
-        return $this->createdAt;
-    }
-
-    public function setCreatedAt(\DateTimeImmutable $createdAt): self
-    {
-        $this->createdAt = $createdAt;
-        return $this;
+        return $this->created_at;
     }
 
     public function getUpdatedAt(): ?\DateTimeImmutable
     {
-        return $this->updatedAt;
+        return $this->updated_at;
     }
 
-    public function setUpdatedAt(\DateTimeImmutable $updatedAt): self
+    /**
+     * Обновляет timestamp обновления
+     */
+    public function updateTimestamp(): self
     {
-        $this->updatedAt = $updatedAt;
+        $this->updated_at = new \DateTimeImmutable();
         return $this;
+    }
+
+    /**
+     * Преобразует сущность в массив
+     */
+    public function toArray(): array
+    {
+        return [
+            'id' => $this->id,
+            'title' => $this->title,
+            'content' => $this->content,
+            'created_at' => $this->created_at->format('Y-m-d\TH:i:s\Z'),
+            'updated_at' => $this->updated_at->format('Y-m-d\TH:i:s\Z'),
+        ];
     }
 }

@@ -2,232 +2,162 @@
 
 namespace App\Controller\Api;
 
-use App\Entity\Note;
-use App\Repository\NoteRepository;
-use Doctrine\ORM\EntityManagerInterface;
+use App\DTO\Note\CreateNoteRequest;
+use App\DTO\Note\UpdateNoteRequest;
+use App\Service\NoteService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Annotation\Route;
-use Symfony\Component\Validator\Validator\ValidatorInterface;
-use OpenApi\Annotations as OA;
-use Nelmio\ApiDocBundle\Annotation\Model;
-use Nelmio\ApiDocBundle\Annotation\Security;
 
 #[Route('/api/notes')]
+#[OA\Tag(name: 'Notes', description: 'Operations for managing notes')]
 class NoteController extends AbstractController
 {
-    /**
-     * Получить все заметки
-     *
-     * @OA\Response(
-     *     response=200,
-     *     description="Возвращает список всех заметок",
-     *     @OA\JsonContent(
-     *         type="array",
-     *         @OA\Items(ref=@Model(type=Note::class))
-     *     )
-     * )
-     */
+    private NoteService $noteService;
+
+    public function __construct(NoteService $noteService)
+    {
+        $this->noteService = $noteService;
+    }
+
     #[Route('/', name: 'api_notes_list', methods: ['GET'])]
-    public function index(NoteRepository $noteRepository): JsonResponse
+    #[OA\Get(
+        summary: 'Get all notes',
+        description: 'Retrieves a list of all notes, sorted by creation date (newest first).',
+        responses: [
+            new OA\Response(
+                response: Response::HTTP_OK,
+                description: 'Successful operation',
+                content: new OA\JsonContent(
+                    type: 'array',
+                    items: new OA\Items(ref: new Model(type: NoteResponse::class))
+                )
+            )
+        ]
+    )]
+    public function index(): JsonResponse
     {
-        $notes = $noteRepository->findAll();
+        $notes = $this->noteService->getAllNotes();
+        $data = array_map(fn($note) => $note->toArray(), $notes);
 
-        $notesArray = array_map(function (Note $note) {
-            return [
-                'id' => $note->getId(),
-                'title' => $note->getTitle(),
-                'content' => $note->getContent(),
-                'createdAt' => $note->getCreatedAt()->format('Y-m-d H:i:s'),
-                'updatedAt' => $note->getUpdatedAt()->format('Y-m-d H:i:s'),
-            ];
-        }, $notes);
-
-        return $this->json($notesArray, Response::HTTP_OK);
+        return $this->json(['data' => $data], Response::HTTP_OK);
     }
 
-    /**
-     * Получить конкретную заметку
-     *
-     * @OA\Parameter(
-     *     name="id",
-     *     in="path",
-     *     description="ID заметки",
-     *     required=true,
-     *     @OA\Schema(type="integer")
-     * )
-     * @OA\Response(
-     *     response=200,
-     *     description="Возвращает заметку по ID",
-     *     @OA\JsonContent(ref=@Model(type=Note::class))
-     * )
-     * @OA\Response(
-     *     response=404,
-     *     description="Заметка не найдена"
-     * )
-     */
     #[Route('/{id}', name: 'api_notes_show', methods: ['GET'])]
-    public function show(Note $note): JsonResponse
+    public function show(int $id): JsonResponse
     {
-        $data = [
-            'id' => $note->getId(),
-            'title' => $note->getTitle(),
-            'content' => $note->getContent(),
-            'createdAt' => $note->getCreatedAt()->format('Y-m-d H:i:s'),
-            'updatedAt' => $note->getUpdatedAt()->format('Y-m-d H:i:s'),
-        ];
+        $note = $this->noteService->getNoteById($id);
 
-        return $this->json($data, Response::HTTP_OK);
+        if ($note === null) {
+            return $this->json(
+                ['error' => 'Note not found'],
+                Response::HTTP_NOT_FOUND
+            );
+        }
+
+        return $this->json(['data' => $note->toArray()], Response::HTTP_OK);
     }
 
-    /**
-     * Создать новую заметку
-     *
-     * @OA\RequestBody(
-     *     required=true,
-     *     description="Данные для создания заметки",
-     *     @OA\JsonContent(
-     *         required={"title", "content"},
-     *         @OA\Property(property="title", type="string", example="Моя заметка"),
-     *         @OA\Property(property="content", type="string", example="Содержание заметки")
-     *     )
-     * )
-     * @OA\Response(
-     *     response=201,
-     *     description="Заметка успешно создана",
-     *     @OA\JsonContent(ref=@Model(type=Note::class))
-     * )
-     * @OA\Response(
-     *     response=400,
-     *     description="Некорректные данные"
-     * )
-     */
     #[Route('/', name: 'api_notes_create', methods: ['POST'])]
-    public function create(
-        Request $request,
-        EntityManagerInterface $entityManager,
-        ValidatorInterface $validator
-    ): JsonResponse {
-        $data = json_decode($request->getContent(), true);
-
-        $note = new Note();
-        $note->setTitle($data['title'] ?? '');
-        $note->setContent($data['content'] ?? '');
-
-        $errors = $validator->validate($note);
-        if (count($errors) > 0) {
-            $errorMessages = [];
-            foreach ($errors as $error) {
-                $errorMessages[] = $error->getMessage();
-            }
-
-            return $this->json(['errors' => $errorMessages], Response::HTTP_BAD_REQUEST);
-        }
-
-        $entityManager->persist($note);
-        $entityManager->flush();
-
-        return $this->json([
-            'id' => $note->getId(),
-            'title' => $note->getTitle(),
-            'content' => $note->getContent(),
-            'createdAt' => $note->getCreatedAt()->format('Y-m-d H:i:s'),
-            'updatedAt' => $note->getUpdatedAt()->format('Y-m-d H:i:s'),
-        ], Response::HTTP_CREATED);
-    }
-
-    /**
-     * Обновить заметку
-     *
-     * @OA\Parameter(
-     *     name="id",
-     *     in="path",
-     *     description="ID заметки",
-     *     required=true,
-     *     @OA\Schema(type="integer")
-     * )
-     * @OA\RequestBody(
-     *     required=true,
-     *     description="Данные для обновления заметки",
-     *     @OA\JsonContent(
-     *         @OA\Property(property="title", type="string", example="Обновленный заголовок"),
-     *         @OA\Property(property="content", type="string", example="Обновленное содержание")
-     *     )
-     * )
-     * @OA\Response(
-     *     response=200,
-     *     description="Заметка успешно обновлена",
-     *     @OA\JsonContent(ref=@Model(type=Note::class))
-     * )
-     * @OA\Response(
-     *     response=400,
-     *     description="Некорректные данные"
-     * )
-     * @OA\Response(
-     *     response=404,
-     *     description="Заметка не найдена"
-     * )
-     */
-    #[Route('/{id}', name: 'api_notes_update', methods: ['PUT'])]
-    public function update(
-        Note $note,
-        Request $request,
-        EntityManagerInterface $entityManager,
-        ValidatorInterface $validator
-    ): JsonResponse {
-        $data = json_decode($request->getContent(), true);
-
-        $note->setTitle($data['title'] ?? $note->getTitle());
-        $note->setContent($data['content'] ?? $note->getContent());
-        $note->setUpdatedAt(new \DateTimeImmutable());
-
-        $errors = $validator->validate($note);
-        if (count($errors) > 0) {
-            $errorMessages = [];
-            foreach ($errors as $error) {
-                $errorMessages[] = $error->getMessage();
-            }
-
-            return $this->json(['errors' => $errorMessages], Response::HTTP_BAD_REQUEST);
-        }
-
-        $entityManager->flush();
-
-        return $this->json([
-            'id' => $note->getId(),
-            'title' => $note->getTitle(),
-            'content' => $note->getContent(),
-            'createdAt' => $note->getCreatedAt()->format('Y-m-d H:i:s'),
-            'updatedAt' => $note->getUpdatedAt()->format('Y-m-d H:i:s'),
-        ], Response::HTTP_OK);
-    }
-
-    /**
-     * Удалить заметку
-     *
-     * @OA\Parameter(
-     *     name="id",
-     *     in="path",
-     *     description="ID заметки",
-     *     required=true,
-     *     @OA\Schema(type="integer")
-     * )
-     * @OA\Response(
-     *     response=204,
-     *     description="Заметка успешно удалена"
-     * )
-     * @OA\Response(
-     *     response=404,
-     *     description="Заметка не найдена"
-     * )
-     */
-    #[Route('/{id}', name: 'api_notes_delete', methods: ['DELETE'])]
-    public function delete(Note $note, EntityManagerInterface $entityManager): JsonResponse
+    #[OA\Post(
+        summary: 'Create a new note',
+        description: 'Creates a new note after validating the provided title and content.',
+        requestBody: new OA\RequestBody(
+            description: 'Note data to create',
+            required: true,
+            content: new OA\JsonContent(ref: new Model(type: CreateNoteRequest::class))
+        ),
+        responses: [
+            new OA\Response(
+                response: Response::HTTP_CREATED,
+                description: 'Note successfully created',
+                content: new OA\JsonContent(ref: new Model(type: NoteResponse::class))
+            ),
+            new OA\Response(
+                response: Response::HTTP_BAD_REQUEST,
+                description: 'Validation error. Check the error details.',
+                content: new OA\JsonContent(
+                    properties: [
+                        new OA\Property(property: 'error', type: 'string'),
+                        new OA\Property(property: 'details', type: 'array', items: new OA\Items(type: 'string')),
+                        new OA\Property(property: 'timestamp', type: 'string', format: 'date-time')
+                    ]
+                )
+            )
+        ]
+    )]
+    public function create(Request $request): JsonResponse
     {
-        $entityManager->remove($note);
-        $entityManager->flush();
+        $data = json_decode($request->getContent(), true);
+
+        if ($data === null) {
+            return $this->json(
+                ['error' => 'Invalid JSON data'],
+                Response::HTTP_BAD_REQUEST
+            );
+        }
+
+        $createRequest = CreateNoteRequest::fromArray($data);
+        $result = $this->noteService->createNote($createRequest);
+
+        if (!$result['success']) {
+            return $this->json(
+                $result['error']->toArray(),
+                Response::HTTP_BAD_REQUEST
+            );
+        }
+
+        return $this->json(
+            ['data' => $result['data']->toArray()],
+            Response::HTTP_CREATED
+        );
+    }
+
+    #[Route('/{id}', name: 'api_notes_update', methods: ['PUT'])]
+    public function update(int $id, Request $request): JsonResponse
+    {
+        $data = json_decode($request->getContent(), true);
+
+        if ($data === null) {
+            return $this->json(
+                ['error' => 'Invalid JSON data'],
+                Response::HTTP_BAD_REQUEST
+            );
+        }
+
+        $updateRequest = UpdateNoteRequest::fromArray($data);
+        $result = $this->noteService->updateNote($id, $updateRequest);
+
+        if (!$result['success']) {
+            $statusCode = $result['error']->error === 'Note not found'
+                ? Response::HTTP_NOT_FOUND
+                : Response::HTTP_BAD_REQUEST;
+
+            return $this->json(
+                $result['error']->toArray(),
+                $statusCode
+            );
+        }
+
+        return $this->json(
+            ['data' => $result['data']->toArray()],
+            Response::HTTP_OK
+        );
+    }
+
+    #[Route('/{id}', name: 'api_notes_delete', methods: ['DELETE'])]
+    public function delete(int $id): JsonResponse
+    {
+        $result = $this->noteService->deleteNote($id);
+
+        if (!$result['success']) {
+            return $this->json(
+                $result['error']->toArray(),
+                Response::HTTP_NOT_FOUND
+            );
+        }
 
         return new JsonResponse(null, Response::HTTP_NO_CONTENT);
     }
